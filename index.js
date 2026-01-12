@@ -1,15 +1,12 @@
 // ==========================================
-// DISCORD MUSIC BOT - RENDER + UPTIMEROBOT
+// DISCORD MUSIC BOT - RENDER VERSION
 // ==========================================
 
 const express = require('express');
 const {
     Client,
     GatewayIntentBits,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle
+    EmbedBuilder
 } = require('discord.js');
 const {
     joinVoiceChannel,
@@ -22,33 +19,52 @@ const {
 const play = require('play-dl');
 
 // ==========================================
-// EXPRESS SERVER (Anti-Sleep)
+// EXPRESS SERVER
 // ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let botReady = false;
+
 app.get('/', (req, res) => {
     res.send(`
-        <h1>🎵 Bot Musik Discord</h1>
-        <p>Status: Online</p>
-        <p>Uptime: ${Math.floor(process.uptime())} detik</p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Discord Music Bot</title>
+            <style>
+                body { font-family: Arial; background: #2c2f33; color: #fff; padding: 50px; text-align: center; }
+                .status { font-size: 24px; margin: 20px; }
+                .online { color: #43b581; }
+                .offline { color: #f04747; }
+            </style>
+        </head>
+        <body>
+            <h1>🎵 Discord Music Bot</h1>
+            <div class="status ${botReady ? 'online' : 'offline'}">
+                Status: ${botReady ? '🟢 Online' : '🔴 Offline'}
+            </div>
+            <p>Uptime: ${Math.floor(process.uptime())} detik</p>
+            <p>Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB</p>
+        </body>
+        </html>
     `);
 });
 
 app.get('/health', (req, res) => {
     res.status(200).json({
-        status: 'online',
+        status: botReady ? 'online' : 'starting',
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
     });
 });
 
 app.listen(PORT, () => {
-    console.log(`🌐 Server Express berjalan di port ${PORT}`);
+    console.log(`🌐 Server berjalan di port ${PORT}`);
 });
 
 // ==========================================
-// DISCORD BOT SETUP
+// DISCORD BOT
 // ==========================================
 const client = new Client({
     intents: [
@@ -59,89 +75,99 @@ const client = new Client({
     ]
 });
 
-// Queue musik per server
 const queue = new Map();
-
-// Prefix command
 const PREFIX = '!';
 
 // ==========================================
-// BOT READY EVENT
+// ERROR HANDLERS
+// ==========================================
+process.on('unhandledRejection', (error) => {
+    console.error('❌ Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught exception:', error);
+});
+
+// ==========================================
+// BOT READY
 // ==========================================
 client.once('ready', () => {
     console.log(`✅ Bot ${client.user.tag} online!`);
-    client.user.setActivity('🎵 !help untuk bantuan', { type: 2 });
+    botReady = true;
+    client.user.setActivity('🎵 !help', { type: 2 });
 });
 
 // ==========================================
 // MESSAGE HANDLER
 // ==========================================
 client.on('messageCreate', async (message) => {
-    // Ignore bot dan pesan tanpa prefix
     if (message.author.bot) return;
     if (!message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // ========== COMMAND: HELP ==========
+    // COMMAND: HELP
     if (command === 'help') {
         const helpEmbed = new EmbedBuilder()
             .setColor('#3498db')
-            .setTitle('🎵 Daftar Perintah Bot Musik')
-            .setDescription('Berikut adalah perintah yang tersedia:')
+            .setTitle('🎵 Daftar Perintah')
             .addFields(
-                { name: '`!play <judul/url>`', value: 'Putar musik dari YouTube', inline: false },
-                { name: '`!skip`', value: 'Skip ke lagu berikutnya', inline: true },
-                { name: '`!stop`', value: 'Hentikan musik & keluar', inline: true },
-                { name: '`!pause`', value: 'Pause musik', inline: true },
-                { name: '`!resume`', value: 'Lanjutkan musik', inline: true },
-                { name: '`!queue`', value: 'Lihat antrian musik', inline: true },
-                { name: '`!nowplaying`', value: 'Lagu yang sedang diputar', inline: true }
+                { name: '!play <judul/url>', value: 'Putar musik', inline: false },
+                { name: '!skip', value: 'Skip lagu', inline: true },
+                { name: '!stop', value: 'Stop & keluar', inline: true },
+                { name: '!pause', value: 'Pause musik', inline: true },
+                { name: '!resume', value: 'Resume musik', inline: true },
+                { name: '!queue', value: 'Lihat antrian', inline: true },
+                { name: '!np', value: 'Now playing', inline: true },
+                { name: '!ping', value: 'Cek latency', inline: true }
             )
-            .setFooter({ text: 'Bot Musik Discord 🎶' })
             .setTimestamp();
 
         return message.channel.send({ embeds: [helpEmbed] });
     }
 
-    // ========== COMMAND: PLAY ==========
+    // COMMAND: PING
+    if (command === 'ping') {
+        const sent = await message.reply('🏓 Pinging...');
+        const latency = sent.createdTimestamp - message.createdTimestamp;
+        sent.edit(`🏓 Pong!\n⏱️ Latency: ${latency}ms\n💓 API: ${Math.round(client.ws.ping)}ms`);
+        return;
+    }
+
+    // COMMAND: PLAY
     if (command === 'play' || command === 'p') {
         const voiceChannel = message.member.voice.channel;
 
-        // Cek apakah user di voice channel
         if (!voiceChannel) {
-            return message.reply('❌ Kamu harus masuk ke Voice Channel dulu!');
+            return message.reply('❌ Kamu harus masuk ke Voice Channel!');
         }
 
-        // Cek permission bot
         const permissions = voiceChannel.permissionsFor(message.client.user);
         if (!permissions.has('Connect') || !permissions.has('Speak')) {
-            return message.reply('❌ Saya butuh permission untuk Connect dan Speak!');
+            return message.reply('❌ Bot butuh permission Connect dan Speak!');
         }
 
-        // Cek apakah ada query
         const searchQuery = args.join(' ');
         if (!searchQuery) {
-            return message.reply('❌ Masukkan judul lagu atau URL YouTube!\nContoh: `!play never gonna give you up`');
+            return message.reply('❌ Contoh: `!play never gonna give you up`');
         }
 
-        // Kirim pesan loading
-        const loadingMsg = await message.channel.send('🔍 Mencari lagu...');
+        const loadingMsg = await message.channel.send('🔍 Mencari...');
 
         try {
-            let songInfo;
-            let stream;
+            console.log('🔍 Searching:', searchQuery);
 
-            // Cek apakah URL atau search query
-            if (play.yt_validate(searchQuery) === 'video') {
-                // Jika URL YouTube
+            let songInfo;
+            const isYouTubeUrl = play.yt_validate(searchQuery) === 'video';
+            
+            if (isYouTubeUrl) {
                 songInfo = await play.video_info(searchQuery);
             } else {
-                // Jika search query
                 const searchResult = await play.search(searchQuery, { limit: 1 });
                 if (searchResult.length === 0) {
-                    return loadingMsg.edit('❌ Lagu tidak ditemukan!');
+                    return loadingMsg.edit('❌ Tidak ditemukan!');
                 }
                 songInfo = await play.video_info(searchResult[0].url);
             }
@@ -154,28 +180,23 @@ client.on('messageCreate', async (message) => {
                 requestedBy: message.author.tag
             };
 
-            // Cek apakah sudah ada queue untuk server ini
             const serverQueue = queue.get(message.guild.id);
 
             if (serverQueue) {
-                // Tambah ke queue
                 serverQueue.songs.push(song);
-
                 const addedEmbed = new EmbedBuilder()
                     .setColor('#2ecc71')
-                    .setTitle('✅ Ditambahkan ke Antrian')
+                    .setTitle('✅ Ditambahkan ke Queue')
                     .setDescription(`**[${song.title}](${song.url})**`)
                     .addFields(
                         { name: 'Durasi', value: song.duration, inline: true },
                         { name: 'Posisi', value: `#${serverQueue.songs.length}`, inline: true }
                     )
-                    .setThumbnail(song.thumbnail)
-                    .setFooter({ text: `Diminta oleh ${song.requestedBy}` });
+                    .setThumbnail(song.thumbnail);
 
                 return loadingMsg.edit({ content: '', embeds: [addedEmbed] });
             }
 
-            // Buat queue baru
             const queueConstruct = {
                 textChannel: message.channel,
                 voiceChannel: voiceChannel,
@@ -187,146 +208,139 @@ client.on('messageCreate', async (message) => {
 
             queue.set(message.guild.id, queueConstruct);
 
-            // Join voice channel
-            const connection = joinVoiceChannel({
-                channelId: voiceChannel.id,
-                guildId: message.guild.id,
-                adapterCreator: message.guild.voiceAdapterCreator
-            });
+            try {
+                console.log('🔌 Connecting...');
+                
+                const connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: message.guild.id,
+                    adapterCreator: message.guild.voiceAdapterCreator
+                });
 
-            queueConstruct.connection = connection;
+                queueConstruct.connection = connection;
 
-            // Handle connection ready
-            connection.on(VoiceConnectionStatus.Ready, () => {
-                console.log('✅ Voice connection ready!');
-            });
+                await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+                console.log('✅ Connected!');
 
-            // Handle disconnect
-            connection.on(VoiceConnectionStatus.Disconnected, async () => {
-                try {
-                    await Promise.race([
-                        entersState(connection, VoiceConnectionStatus.Signalling, 5000),
-                        entersState(connection, VoiceConnectionStatus.Connecting, 5000)
-                    ]);
-                } catch (error) {
-                    connection.destroy();
-                    queue.delete(message.guild.id);
-                }
-            });
+                connection.on(VoiceConnectionStatus.Disconnected, async () => {
+                    try {
+                        await Promise.race([
+                            entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+                            entersState(connection, VoiceConnectionStatus.Connecting, 5_000)
+                        ]);
+                    } catch (error) {
+                        connection.destroy();
+                        queue.delete(message.guild.id);
+                    }
+                });
 
-            // Mulai putar
-            await playSong(message.guild.id, queueConstruct.songs[0]);
-            loadingMsg.delete().catch(() => {});
+                await playSong(message.guild.id, queueConstruct.songs[0]);
+                loadingMsg.delete().catch(() => {});
+
+            } catch (error) {
+                console.error('❌ Connection error:', error);
+                queue.delete(message.guild.id);
+                return loadingMsg.edit('❌ Tidak bisa join VC!');
+            }
 
         } catch (error) {
-            console.error('Error play command:', error);
-            loadingMsg.edit('❌ Terjadi error saat memutar lagu!');
+            console.error('❌ Play error:', error);
             queue.delete(message.guild.id);
+            
+            let errorMessage = '❌ Terjadi error!';
+            if (error.message.includes('Sign in')) {
+                errorMessage = '❌ YouTube rate limit. Tunggu beberapa menit.';
+            }
+            
+            return loadingMsg.edit(errorMessage);
         }
     }
 
-    // ========== COMMAND: SKIP ==========
+    // COMMAND: SKIP
     if (command === 'skip' || command === 's') {
         const serverQueue = queue.get(message.guild.id);
-
-        if (!serverQueue) {
-            return message.reply('❌ Tidak ada lagu yang diputar!');
-        }
-
-        if (!message.member.voice.channel) {
-            return message.reply('❌ Kamu harus di Voice Channel!');
-        }
+        if (!serverQueue) return message.reply('❌ Tidak ada lagu!');
+        if (!message.member.voice.channel) return message.reply('❌ Join VC dulu!');
 
         serverQueue.player.stop();
-        message.react('⏭️');
+        message.react('⏭️').catch(() => {});
     }
 
-    // ========== COMMAND: STOP ==========
-    if (command === 'stop' || command === 'leave' || command === 'dc') {
+    // COMMAND: STOP
+    if (command === 'stop' || command === 'leave') {
         const serverQueue = queue.get(message.guild.id);
-
-        if (!serverQueue) {
-            return message.reply('❌ Tidak ada lagu yang diputar!');
-        }
+        if (!serverQueue) return message.reply('❌ Tidak ada lagu!');
+        if (!message.member.voice.channel) return message.reply('❌ Join VC dulu!');
 
         serverQueue.songs = [];
         serverQueue.player.stop();
-        serverQueue.connection.destroy();
+        if (serverQueue.connection) serverQueue.connection.destroy();
         queue.delete(message.guild.id);
-
-        message.reply('👋 Bot keluar dari Voice Channel!');
+        
+        message.reply('👋 Bye!');
     }
 
-    // ========== COMMAND: PAUSE ==========
+    // COMMAND: PAUSE
     if (command === 'pause') {
         const serverQueue = queue.get(message.guild.id);
-
-        if (!serverQueue || !serverQueue.playing) {
-            return message.reply('❌ Tidak ada lagu yang diputar!');
-        }
+        if (!serverQueue || !serverQueue.playing) return message.reply('❌ Tidak ada lagu!');
 
         serverQueue.player.pause();
         serverQueue.playing = false;
-        message.react('⏸️');
+        message.react('⏸️').catch(() => {});
     }
 
-    // ========== COMMAND: RESUME ==========
+    // COMMAND: RESUME
     if (command === 'resume') {
         const serverQueue = queue.get(message.guild.id);
-
-        if (!serverQueue) {
-            return message.reply('❌ Tidak ada lagu di queue!');
-        }
+        if (!serverQueue) return message.reply('❌ Tidak ada lagu!');
 
         serverQueue.player.unpause();
         serverQueue.playing = true;
-        message.react('▶️');
+        message.react('▶️').catch(() => {});
     }
 
-    // ========== COMMAND: QUEUE ==========
+    // COMMAND: QUEUE
     if (command === 'queue' || command === 'q') {
         const serverQueue = queue.get(message.guild.id);
-
         if (!serverQueue || serverQueue.songs.length === 0) {
-            return message.reply('❌ Antrian kosong!');
+            return message.reply('❌ Queue kosong!');
         }
 
         const songList = serverQueue.songs
             .slice(0, 10)
             .map((song, index) => {
                 if (index === 0) {
-                    return `🎵 **Sedang Diputar:** [${song.title}](${song.url}) - \`${song.duration}\``;
+                    return `🎵 **Now:** [${song.title}](${song.url}) \`${song.duration}\``;
                 }
-                return `**${index}.** [${song.title}](${song.url}) - \`${song.duration}\``;
+                return `**${index}.** [${song.title}](${song.url}) \`${song.duration}\``;
             })
-            .join('\n\n');
+            .join('\n');
 
         const queueEmbed = new EmbedBuilder()
             .setColor('#9b59b6')
-            .setTitle('📜 Antrian Musik')
+            .setTitle('📜 Queue')
             .setDescription(songList)
-            .setFooter({ text: `Total: ${serverQueue.songs.length} lagu` });
+            .setFooter({ text: `Total: ${serverQueue.songs.length}` });
 
         message.channel.send({ embeds: [queueEmbed] });
     }
 
-    // ========== COMMAND: NOW PLAYING ==========
+    // COMMAND: NOW PLAYING
     if (command === 'nowplaying' || command === 'np') {
         const serverQueue = queue.get(message.guild.id);
-
         if (!serverQueue || serverQueue.songs.length === 0) {
-            return message.reply('❌ Tidak ada lagu yang diputar!');
+            return message.reply('❌ Tidak ada lagu!');
         }
 
         const song = serverQueue.songs[0];
-
         const npEmbed = new EmbedBuilder()
             .setColor('#e74c3c')
-            .setTitle('🎵 Sedang Diputar')
+            .setTitle('🎵 Now Playing')
             .setDescription(`**[${song.title}](${song.url})**`)
             .addFields(
                 { name: 'Durasi', value: song.duration, inline: true },
-                { name: 'Diminta oleh', value: song.requestedBy, inline: true }
+                { name: 'Diminta', value: song.requestedBy, inline: true }
             )
             .setThumbnail(song.thumbnail);
 
@@ -335,71 +349,80 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==========================================
-// FUNGSI PUTAR LAGU
+// PLAY SONG FUNCTION
 // ==========================================
 async function playSong(guildId, song) {
     const serverQueue = queue.get(guildId);
 
     if (!song) {
-        // Queue habis
         setTimeout(() => {
-            if (serverQueue.connection) {
+            if (serverQueue && serverQueue.connection) {
                 serverQueue.connection.destroy();
             }
             queue.delete(guildId);
-        }, 60000); // Tunggu 1 menit sebelum disconnect
+        }, 60000);
         return;
     }
 
     try {
-        // Dapatkan stream audio
-        const stream = await play.stream(song.url);
+        console.log('🎵 Playing:', song.title);
 
-        // Buat audio resource
+        const stream = await play.stream(song.url);
         const resource = createAudioResource(stream.stream, {
-            inputType: stream.type
+            inputType: stream.type,
+            inlineVolume: true
         });
 
-        // Putar audio
+        if (resource.volume) {
+            resource.volume.setVolume(0.5);
+        }
+
         serverQueue.player.play(resource);
         serverQueue.connection.subscribe(serverQueue.player);
 
-        // Kirim embed Now Playing
         const playEmbed = new EmbedBuilder()
             .setColor('#1DB954')
-            .setTitle('🎵 Sedang Memutar')
+            .setTitle('🎵 Now Playing')
             .setDescription(`**[${song.title}](${song.url})**`)
             .addFields(
                 { name: 'Durasi', value: song.duration, inline: true },
-                { name: 'Diminta oleh', value: song.requestedBy, inline: true }
+                { name: 'Diminta', value: song.requestedBy, inline: true }
             )
-            .setThumbnail(song.thumbnail)
-            .setTimestamp();
+            .setThumbnail(song.thumbnail);
 
         serverQueue.textChannel.send({ embeds: [playEmbed] });
 
-        // Handle ketika lagu selesai
-        serverQueue.player.on(AudioPlayerStatus.Idle, () => {
-            serverQueue.songs.shift(); // Hapus lagu yang sudah selesai
-            playSong(guildId, serverQueue.songs[0]); // Putar lagu berikutnya
+        serverQueue.player.once(AudioPlayerStatus.Idle, () => {
+            console.log('⏭️ Next song');
+            serverQueue.songs.shift();
+            playSong(guildId, serverQueue.songs[0]);
         });
 
-        // Handle error
         serverQueue.player.on('error', (error) => {
-            console.error('Audio Player Error:', error);
+            console.error('❌ Player error:', error);
+            serverQueue.textChannel.send('❌ Error! Skipping...');
             serverQueue.songs.shift();
             playSong(guildId, serverQueue.songs[0]);
         });
 
     } catch (error) {
-        console.error('Error playing song:', error);
-        serverQueue.textChannel.send('❌ Error memutar lagu, skip ke berikutnya...');
+        console.error('❌ Play error:', error);
+        serverQueue.textChannel.send('❌ Error playing!');
         serverQueue.songs.shift();
-        playSong(guildId, serverQueue.songs[0]);
+        
+        if (serverQueue.songs.length > 0) {
+            setTimeout(() => playSong(guildId, serverQueue.songs[0]), 2000);
+        } else {
+            if (serverQueue.connection) serverQueue.connection.destroy();
+            queue.delete(guildId);
+        }
     }
 }
 
 // ==========================================
-// LOGIN BOT
+// LOGIN
 // ==========================================
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN).catch(error => {
+    console.error('❌ Login failed:', error);
+    process.exit(1);
+});
