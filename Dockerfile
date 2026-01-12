@@ -1,27 +1,25 @@
-# Base image Node.js
 FROM node:20-slim
 
-# Install FFmpeg dan dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
+    python3-pip \
     build-essential \
+    libsodium-dev \
+    libopus-dev \
+    && pip3 install --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm install --verbose
 
-# Install dependencies
-RUN npm install
+# Verify installations
+RUN ffmpeg -version && yt-dlp --version
 
-# Copy source code
 COPY . .
 
-# Expose port untuk Express (anti-sleep)
 EXPOSE 3000
 
-# Jalankan bot
 CMD ["npm", "start"]
