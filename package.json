@@ -1,11 +1,21 @@
 {
+  "name": "discord-music-bot",
+  "version": "1.0.0",
+  "description": "Bot musik Discord dengan Node.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "discord.js": "^14.14.1",
     "@discordjs/voice": "^0.17.0",
     "@discordjs/opus": "^0.9.0",
     "sodium-native": "^4.0.4",
-    "ytdl-core": "^4.11.5",
-    "@distube/ytdl-core": "^4.13.3",
-    "express": "^4.18.2"
+    "play-dl": "^1.9.7",
+    "express": "^4.18.2",
+    "ffmpeg-static": "^5.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
